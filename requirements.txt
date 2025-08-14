@@ -1,5 +1,5 @@
 # Telegram Bot Framework
-python-telegram-bot==20.7
+python-telegram-bot[job-queue]==20.7
 
 # OpenAI API Client
 openai==1.6.1
