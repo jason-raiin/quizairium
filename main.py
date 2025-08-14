@@ -282,7 +282,7 @@ class TriviaBot:
         
         # Send question
         question_text = (
-            f"❓ **Question {game['current_question']}/{game['duration']}**\n\n"
+            f"❓ *Question {game['current_question']}/{game['duration']}*\n\n"
             f"{question_data['question']}\n\n"
             f"⏱️ You have 30 seconds to answer!"
         )
@@ -320,7 +320,7 @@ class TriviaBot:
         current_q = game["questions"][game["current_question"] - 1]  # Adjust index since current_question is 1-based now
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"⏰ Time's up! The correct answer was: **{current_q['official_answer']}**",
+            text=f"⏰ Time's up! The correct answer was: *{current_q['official_answer']}*",
             parse_mode='Markdown'
         )
         
@@ -332,7 +332,7 @@ class TriviaBot:
         """Check if a message contains a correct answer"""
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
-        username = update.effective_user.username or update.effective_user.first_name
+        username = update.effective_user.first_name or update.effective_user.username 
         user_answer = update.message.text.lower().strip()
         
         if chat_id not in self.active_games:
@@ -368,7 +368,7 @@ class TriviaBot:
             
             # Send success message
             await update.message.reply_text(
-                f"🎉 Correct! You got it right!\n"
+                f"🎉 Correct! *{r"{}".format(username)}* got it right!\n"
                 f"Answer: {current_q['official_answer']}\n"
                 f"Points earned: {points} pts (+{time_remaining:.1f}s remaining)",
                 parse_mode='Markdown'
@@ -421,9 +421,9 @@ class TriviaBot:
             {"_id": game["game_id"]},
             {
                 "$set": {
-                    "scores": game["scores"],
+                    "scores": { str(key): value for key, value in game["scores"].items() },
                     "status": "completed" if not early_end else "ended_early",
-                    "completed_at": datetime.utcnow(),
+                    "completed_at": datetime.now(),
                     "questions_completed": game["current_question"] - (1 if game.get("answered", False) else 0)
                 }
             }
@@ -435,7 +435,7 @@ class TriviaBot:
                 {"user_id": user_id, "chat_id": chat_id},
                 {
                     "$inc": {"total_points": score_data["points"], "games_played": 1},
-                    "$set": {"username": score_data["username"], "last_played": datetime.utcnow()}
+                    "$set": {"username": score_data["username"], "last_played": datetime.now()}
                 },
                 upsert=True
             )
@@ -448,13 +448,13 @@ class TriviaBot:
                 reverse=True
             )
             
-            status_text = "🛑 **GAME ENDED EARLY**" if early_end else "🏆 **FINAL LEADERBOARD**"
+            status_text = "🛑 *GAME ENDED EARLY*" if early_end else "🏆 *FINAL LEADERBOARD*"
             leaderboard = f"{status_text} 🏆\n\n"
             medals = ["🥇", "🥈", "🥉"]
             
             for i, (user_id, score_data) in enumerate(sorted_scores):
                 medal = medals[i] if i < 3 else f"{i+1}."
-                leaderboard += f"{medal} **{score_data['username']}** - {score_data['points']} pts\n"
+                leaderboard += f"{medal} *{r"{}".format(score_data['username'])}* - {score_data['points']} pts\n"
         else:
             if early_end:
                 leaderboard = "🛑 Game ended early - no points were scored!"
@@ -486,7 +486,7 @@ class TriviaBot:
             return
         
         stats_text = (
-            f"📊 **Your Stats** 📊\n\n"
+            f"📊 *Your Stats* 📊\n\n"
             f"🎮 Games played: {user_stats.get('games_played', 0)}\n"
             f"🎯 Total points: {user_stats.get('total_points', 0)}\n"
             f"📈 Average per game: {user_stats.get('total_points', 0) / max(user_stats.get('games_played', 1), 1):.1f}\n"
@@ -508,12 +508,12 @@ class TriviaBot:
             await update.message.reply_text("No games have been played in this chat yet!")
             return
         
-        leaderboard = "🏆 **CHAT LEADERBOARD** 🏆\n\n"
+        leaderboard = "🏆 *CHAT LEADERBOARD* 🏆\n\n"
         medals = ["🥇", "🥈", "🥉"]
         
         for i, player in enumerate(top_players):
             medal = medals[i] if i < 3 else f"{i+1}."
-            leaderboard += f"{medal} **{player['username']}** - {player['total_points']} pts ({player['games_played']} games)\n"
+            leaderboard += f"{medal} *{player['username']}* - {player['total_points']} pts ({player['games_played']} games)\n"
         
         await update.message.reply_text(leaderboard, parse_mode='Markdown')
 
