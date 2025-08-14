@@ -311,7 +311,7 @@ class TriviaBot:
             
             # Send success message
             await update.message.reply_text(
-                f"🎉 Correct! **{username}** got it right!\n"
+                f"Correct! You got it right!\n"
                 f"Answer: {current_q['official_answer']}\n"
                 f"Points earned: {points} pts (+{time_remaining:.1f}s remaining)",
                 parse_mode='Markdown'
@@ -321,7 +321,38 @@ class TriviaBot:
             await asyncio.sleep(3)
             await self.next_question(chat_id, context)
 
-    async def end_game(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE):
+    async def end_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /end command to stop game immediately"""
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        
+        # Check if there's an active game
+        if chat_id not in self.active_games:
+            await update.message.reply_text("There's no active game to end!")
+            return
+        
+        game = self.active_games[chat_id]
+        
+        # Check if user is the one who started the game or is an admin
+        chat_member = await context.bot.get_chat_member(chat_id, user_id)
+        is_admin = chat_member.status in ['administrator', 'creator']
+        is_game_starter = user_id == game.get("started_by")
+        
+        if not (is_admin or is_game_starter):
+            await update.message.reply_text("❌ Only the player who started the game or group admins can end the game early!")
+            return
+        
+        # Cancel any pending timeout jobs
+        jobs_to_cancel = context.job_queue.get_jobs_by_name(f"timeout_{chat_id}_{game['current_question']}")
+        for job in jobs_to_cancel:
+            job.schedule_removal()
+        
+        await update.message.reply_text("🛑 Game ended early by admin/starter!")
+        
+        # End the game
+        await self.end_game(chat_id, context, early_end=True)
+
+    async def end_game(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE, early_end: bool = False):
         """End the game and show leaderboard"""
         if chat_id not in self.active_games:
             return
@@ -334,8 +365,9 @@ class TriviaBot:
             {
                 "$set": {
                     "scores": game["scores"],
-                    "status": "completed",
-                    "completed_at": datetime.utcnow()
+                    "status": "completed" if not early_end else "ended_early",
+                    "completed_at": datetime.utcnow(),
+                    "questions_completed": game["current_question"] - (1 if game.get("answered", False) else 0)
                 }
             }
         )
@@ -359,16 +391,21 @@ class TriviaBot:
                 reverse=True
             )
             
-            leaderboard = "🏆 **FINAL LEADERBOARD** 🏆\n\n"
+            status_text = "🛑 **GAME ENDED EARLY**" if early_end else "🏆 **FINAL LEADERBOARD**"
+            leaderboard = f"{status_text} 🏆\n\n"
             medals = ["🥇", "🥈", "🥉"]
             
             for i, (user_id, score_data) in enumerate(sorted_scores):
                 medal = medals[i] if i < 3 else f"{i+1}."
                 leaderboard += f"{medal} **{score_data['username']}** - {score_data['points']} pts\n"
         else:
-            leaderboard = "🤷‍♂️ No one scored any points this round! Better luck next time!"
+            if early_end:
+                leaderboard = "🛑 Game ended early - no points were scored!"
+            else:
+                leaderboard = "🤷‍♂️ No one scored any points this round! Better luck next time!"
         
-        leaderboard += f"\n🎮 Game completed! Thanks for playing!\nUse /start to play again."
+        questions_text = f"Questions completed: {game['current_question'] - (1 if not game.get('answered', True) else 0)}/{game['duration']}\n" if early_end else ""
+        leaderboard += f"\n{questions_text}🎮 Thanks for playing!\nUse /start to play again."
         
         await context.bot.send_message(
             chat_id=chat_id,
@@ -429,6 +466,7 @@ class TriviaBot:
         
         # Add handlers
         application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("end", self.end_command))
         application.add_handler(CommandHandler("stats", self.stats_command))
         application.add_handler(CommandHandler("leaderboard", self.leaderboard_command))
         application.add_handler(CallbackQueryHandler(self.duration_callback, pattern="^duration_"))
