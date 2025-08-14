@@ -118,6 +118,23 @@ class TriviaBot:
             await query.edit_message_text("Error: No active game found. Please start a new game with /start")
             return
         
+        # Show generating message
+        await query.edit_message_text(
+            f"🎮 Setting up trivia game!\n"
+            f"📊 Questions: {self.active_games[chat_id]['duration']}\n"
+            f"📚 Category: {self.categories[category]}\n\n"
+            f"🤖 Generating all questions... Please wait!"
+        )
+        
+        # Generate all questions at once
+        try:
+            questions = await self.generate_questions(category, self.active_games[chat_id]["duration"])
+        except Exception as e:
+            logger.error(f"Failed to generate questions: {e}")
+            await query.edit_message_text("❌ Failed to generate questions. Please try again with /start")
+            del self.active_games[chat_id]
+            return
+        
         # Initialize game
         game_data = {
             "chat_id": chat_id,
@@ -125,10 +142,10 @@ class TriviaBot:
             "category": category,
             "category_name": self.categories[category],
             "current_question": 0,
-            "questions": [],
+            "questions": questions,  # Store all pre-generated questions
             "scores": {},
             "status": "active",
-            "created_at": datetime.now(),
+            "created_at": datetime.utcnow(),
             "started_by": self.active_games[chat_id]["started_by"]
         }
         
@@ -142,37 +159,47 @@ class TriviaBot:
             "category": category,
             "category_name": self.categories[category],
             "current_question": 0,
-            "questions": [],
+            "questions": questions,  # Store all pre-generated questions
             "scores": {},
             "status": "active"
         })
         
         await query.edit_message_text(
-            f"🎮 Starting trivia game!\n"
+            f"✅ All questions generated!\n"
             f"📊 Questions: {game_data['duration']}\n"
             f"📚 Category: {self.categories[category]}\n\n"
-            f"Get ready! First question coming up..."
+            f"🚀 Starting in 3 seconds..."
         )
+        
+        # Brief pause before starting
+        await asyncio.sleep(3)
         
         # Start the first question
         await self.next_question(chat_id, context)
 
-    async def generate_question(self, category: str) -> Dict:
-        """Generate a trivia question using OpenAI"""
+    async def generate_questions(self, category: str, num_questions: int) -> List[Dict]:
+        """Generate multiple trivia questions using OpenAI"""
         category_name = self.categories[category]
         
-        prompt = f"""Generate a trivia question in the {category_name} category. 
+        prompt = f"""Generate {num_questions} trivia questions in the {category_name} category. 
         
-        Return a JSON object with exactly this structure:
-        {{
-            "question": "The trivia question here",
-            "official_answer": "The main correct answer",
-            "acceptable_answers": ["answer1", "answer2", "answer3"]
-        }}
+        Return a JSON array with exactly this structure:
+        [
+            {{
+                "question": "The trivia question here",
+                "official_answer": "The main correct answer",
+                "acceptable_answers": ["answer1", "answer2", "answer3"]
+            }},
+            {{
+                "question": "Another trivia question here",
+                "official_answer": "The main correct answer",
+                "acceptable_answers": ["answer1", "answer2", "answer3"]
+            }}
+        ]
         
         The acceptable_answers should include the official answer plus alternative ways to express the same answer (different spellings, abbreviations, etc.). Make sure all answers are lowercase for easier matching.
         
-        Make the question challenging but fair, suitable for a group trivia game."""
+        Make the questions challenging but fair, suitable for a group trivia game. Ensure all {num_questions} questions are unique and varied within the category."""
         
         try:
             response = await self.openai_client.chat.completions.create(
@@ -181,26 +208,57 @@ class TriviaBot:
                     {"role": "system", "content": "You are a trivia question generator. Always respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=150,
-                temperature=0.9
+                max_tokens=1500,  # Increased for multiple questions
+                temperature=0.7
             )
             
             content = response.choices[0].message.content.strip()
-            question_data = json.loads(content)
+            questions_data = json.loads(content)
             
-            # Ensure acceptable_answers is lowercase
-            question_data["acceptable_answers"] = [ans.lower().strip() for ans in question_data["acceptable_answers"]]
+            # Ensure acceptable_answers are lowercase for all questions
+            for question in questions_data:
+                question["acceptable_answers"] = [ans.lower().strip() for ans in question["acceptable_answers"]]
             
-            return question_data
+            # Validate we got the right number of questions
+            if len(questions_data) != num_questions:
+                logger.warning(f"Expected {num_questions} questions, got {len(questions_data)}. Padding with fallback questions.")
+                # Add fallback questions if needed
+                while len(questions_data) < num_questions:
+                    questions_data.append({
+                        "question": f"What is 2 + {len(questions_data)}?",
+                        "official_answer": str(2 + len(questions_data)),
+                        "acceptable_answers": [str(2 + len(questions_data))]
+                    })
+            
+            return questions_data[:num_questions]  # Ensure we don't exceed requested number
             
         except Exception as e:
-            logger.error(f"Error generating question: {e}")
-            # Fallback question
-            return {
-                "question": "What is the capital of France?",
-                "official_answer": "Paris",
-                "acceptable_answers": ["paris"]
-            }
+            logger.error(f"Error generating questions: {e}")
+            # Fallback questions
+            fallback_questions = [
+                {
+                    "question": "What is the capital of France?",
+                    "official_answer": "Paris",
+                    "acceptable_answers": ["paris"]
+                },
+                {
+                    "question": "What is 2 + 2?",
+                    "official_answer": "4",
+                    "acceptable_answers": ["4", "four"]
+                },
+                {
+                    "question": "What color do you get when you mix red and blue?",
+                    "official_answer": "Purple",
+                    "acceptable_answers": ["purple", "violet"]
+                }
+            ]
+            
+            # Repeat fallback questions if needed
+            result = []
+            for i in range(num_questions):
+                result.append(fallback_questions[i % len(fallback_questions)])
+            
+            return result
 
     async def next_question(self, chat_id: int, context: ContextTypes.DEFAULT_TYPE):
         """Send the next question"""
@@ -214,11 +272,10 @@ class TriviaBot:
             await self.end_game(chat_id, context)
             return
         
-        # Generate new question
-        question_data = await self.generate_question(game["category"])
+        # Get the pre-generated question
+        question_data = game["questions"][game["current_question"]]
         
-        # Store question data
-        game["questions"].append(question_data)
+        # Update game state
         game["current_question"] += 1
         game["question_start_time"] = time.time()
         game["answered"] = False
@@ -260,7 +317,7 @@ class TriviaBot:
             return  # Question was already answered
         
         # Show correct answer
-        current_q = game["questions"][-1]
+        current_q = game["questions"][game["current_question"] - 1]  # Adjust index since current_question is 1-based now
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"⏰ Time's up! The correct answer was: **{current_q['official_answer']}**",
@@ -287,7 +344,7 @@ class TriviaBot:
             return
         
         # Get current question
-        current_q = game["questions"][-1]
+        current_q = game["questions"][game["current_question"] - 1]  # Adjust index since current_question is 1-based now
         
         # Check if answer is correct
         if user_answer in current_q["acceptable_answers"]:
@@ -311,7 +368,7 @@ class TriviaBot:
             
             # Send success message
             await update.message.reply_text(
-                f"Correct! You got it right!\n"
+                f"🎉 Correct! You got it right!\n"
                 f"Answer: {current_q['official_answer']}\n"
                 f"Points earned: {points} pts (+{time_remaining:.1f}s remaining)",
                 parse_mode='Markdown'
