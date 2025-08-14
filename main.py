@@ -145,7 +145,7 @@ class TriviaBot:
             "questions": questions,  # Store all pre-generated questions
             "scores": {},
             "status": "active",
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(),
             "started_by": self.active_games[chat_id]["started_by"]
         }
         
@@ -181,17 +181,17 @@ class TriviaBot:
         """Generate multiple trivia questions using OpenAI"""
         category_name = self.categories[category]
         
-        prompt = f"""Generate {num_questions} trivia questions in the {category_name} category. 
+        prompt = f"""Generate {num_questions} university challenge questions in the {category_name} category. 
         
         Return a JSON array with exactly this structure:
         [
             {{
-                "question": "The trivia question here",
+                "question": "The question here",
                 "official_answer": "The main correct answer",
                 "acceptable_answers": ["answer1", "answer2", "answer3"]
             }},
             {{
-                "question": "Another trivia question here",
+                "question": "Another question here",
                 "official_answer": "The main correct answer",
                 "acceptable_answers": ["answer1", "answer2", "answer3"]
             }}
@@ -199,25 +199,27 @@ class TriviaBot:
         
         The acceptable_answers should include the official answer plus alternative ways to express the same answer (different spellings, abbreviations, etc.). Make sure all answers are lowercase for easier matching.
         
-        Make the questions challenging but fair, suitable for a group trivia game. Ensure all {num_questions} questions are unique and varied within the category."""
+        Make the questions as difficult as you would expect in the University Challenge. Ensure all {num_questions} questions are unique and varied within the category."""
         
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a trivia question generator. Always respond with valid JSON only."},
+                    {"role": "developer", "content": "You are a question generator for a university trivia club. Always respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=1500,  # Increased for multiple questions
-                temperature=0.7
+                max_tokens=3000,  # Increased for multiple questions
+                temperature=0.95,
+                response_format={"type": "json_object"}
             )
+
             
             content = response.choices[0].message.content.strip()
-            questions_data = json.loads(content)
+            questions_data = json.loads(content)['questions']
             
             # Ensure acceptable_answers are lowercase for all questions
             for question in questions_data:
-                question["acceptable_answers"] = [ans.lower().strip() for ans in question["acceptable_answers"]]
+                question["acceptable_answers"] = [ans.lower().removeprefix("the").strip() for ans in question["acceptable_answers"]]
             
             # Validate we got the right number of questions
             if len(questions_data) != num_questions:

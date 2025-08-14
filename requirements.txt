@@ -2,7 +2,7 @@
 python-telegram-bot[job-queue]==20.7
 
 # OpenAI API Client
-openai==1.6.1
+openai==1.99.9
 
 # MongoDB Driver
 pymongo==4.6.1
