@@ -1,0 +1,11 @@
+# Telegram Bot Framework
+python-telegram-bot==20.7
+
+# OpenAI API Client
+openai==1.6.1
+
+# MongoDB Driver
+pymongo==4.6.1
+
+# Environment Variables Management
+python-dotenv==1.0.0
