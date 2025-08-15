@@ -185,6 +185,8 @@ class TriviaBot:
         prompt = f"""Generate {num_questions} university challenge questions in the {category_name} category. 
 
         Each question should have two hints that guide to the answer but are not too obvious.
+
+        The answer should not be found in the question or hints.
         
         The acceptable_answers should include the official answer plus alternative ways to express the same answer (different spellings, abbreviations, etc.). Make sure all answers are lowercase for easier matching.
         
@@ -192,13 +194,13 @@ class TriviaBot:
         
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4.1",
+                model="gpt-4.1-mini",
                 messages=[
                     {"role": "system", "content": "You are a question generator for the University Challenge. Always respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=10000,  # Increased for multiple questions
-                temperature=0.95,
+                temperature=0.975,
                 response_format={ 
                     "type": "json_schema", 
                     "json_schema": {
