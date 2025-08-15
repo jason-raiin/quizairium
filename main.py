@@ -3,14 +3,14 @@ import asyncio
 import json
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from tracemalloc import start
+from typing import Dict, List
 import logging
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import openai
 from pymongo import MongoClient
-from bson import ObjectId
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -30,7 +30,7 @@ class TriviaBot:
         
         # MongoDB setup
         self.mongo_client = MongoClient(mongodb_uri)
-        self.db = self.mongo_client.trivia_bot
+        self.db = self.mongo_client.quizairium
         self.games_collection = self.db.games
         self.scores_collection = self.db.scores
         
