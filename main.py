@@ -183,20 +183,6 @@ class TriviaBot:
         
         prompt = f"""Generate {num_questions} university challenge questions in the {category_name} category. 
         
-        Return a JSON array with exactly this structure:
-        [
-            {{
-                "question": "The question here",
-                "official_answer": "The main correct answer",
-                "acceptable_answers": ["answer1", "answer2", "answer3"]
-            }},
-            {{
-                "question": "Another question here",
-                "official_answer": "The main correct answer",
-                "acceptable_answers": ["answer1", "answer2", "answer3"]
-            }}
-        ]
-        
         The acceptable_answers should include the official answer plus alternative ways to express the same answer (different spellings, abbreviations, etc.). Make sure all answers are lowercase for easier matching.
         
         Make the questions as difficult as you would expect in the University Challenge. Ensure all {num_questions} questions are unique and varied within the category."""
@@ -205,17 +191,60 @@ class TriviaBot:
             response = await self.openai_client.chat.completions.create(
                 model="gpt-4.1",
                 messages=[
-                    {"role": "developer", "content": "You are a question generator for the University Challenge. Always respond with valid JSON only."},
+                    {"role": "system", "content": "You are a question generator for the University Challenge. Always respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=10000,  # Increased for multiple questions
                 temperature=0.95,
-                response_format={"type": "json_object"}
+                response_format={ 
+                    "type": "json_schema", 
+                    "json_schema": {
+                        "name": "QuestionsSchema",
+                        "strict": True,
+                        "schema": { 
+                            "type": "object",
+                            "properties": { 
+                                "questions": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "description": "List of questions",
+                                        "properties": {
+                                            "question": {
+                                                "type": "string",
+                                                "description": "The question"
+                                            },
+                                            "official_answer": {
+                                                "type": "string",
+                                                "description": "The official correct answer"
+                                            },
+                                            "acceptable_answers": {
+                                                "type": "array",
+                                                "description": "List of acceptable answers",
+                                                "items": { 
+                                                    "type": "string" 
+                                                }
+                                            }
+                                        },
+                                        "additionalProperties": False,
+                                        "required": [ 
+                                            "question", 
+                                            "official_answer",
+                                            "acceptable_answers" 
+                                        ]
+                                    }
+                                }
+                            },
+                            "additionalProperties": False,
+                            "required": [ "questions" ]
+                        }
+                    }
+                }
             )
 
             
             content = response.choices[0].message.content.strip()
-            questions_data = json.loads(content)['questions']
+            questions_data = json.loads(content)["questions"]
             
             # Ensure acceptable_answers are lowercase for all questions
             for question in questions_data:
@@ -325,6 +354,8 @@ class TriviaBot:
             text=f"⏰ Time's up! The correct answer was: *{current_q['official_answer']}*",
             parse_mode='Markdown'
         )
+
+        game["answered"] = True
         
         # Move to next question after a short delay
         await asyncio.sleep(2)
