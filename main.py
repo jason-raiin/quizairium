@@ -203,12 +203,12 @@ class TriviaBot:
         
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4.1",
                 messages=[
-                    {"role": "developer", "content": "You are a question generator for a university trivia club. Always respond with valid JSON only."},
+                    {"role": "developer", "content": "You are a question generator for the University Challenge. Always respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=3000,  # Increased for multiple questions
+                max_tokens=10000,  # Increased for multiple questions
                 temperature=0.95,
                 response_format={"type": "json_object"}
             )
@@ -336,6 +336,7 @@ class TriviaBot:
         user_id = update.effective_user.id
         username = update.effective_user.first_name or update.effective_user.username 
         user_answer = update.message.text.lower().strip()
+        answer_time = update.message.date.timestamp()
         
         if chat_id not in self.active_games:
             return
@@ -350,10 +351,17 @@ class TriviaBot:
         
         # Check if answer is correct
         if user_answer in current_q["acceptable_answers"]:
+            # Check that answer was sent after question started
+            start_time = game["question_start_time"]
+            if answer_time < start_time: return
+
+            # Check that answer was sent before question ended
+            time_elapsed = answer_time - game["question_start_time"]
+            if time_elapsed < 0.5: return # Buffer to prevent race
+
             # Calculate score
-            time_elapsed = time.time() - game["question_start_time"]
             time_remaining = max(0, 30 - time_elapsed)
-            points = int(time_remaining / 6) if time_remaining > 0 else 0
+            points = int(time_remaining / 6 + 1) if time_remaining > 0 else 0
             
             # Update scores
             if user_id not in game["scores"]:
