@@ -145,6 +145,7 @@ class TriviaBot:
             "questions": questions,  # Store all pre-generated questions
             "scores": {},
             "status": "active",
+            "hint_count": 0,
             "created_at": datetime.now(),
             "started_by": self.active_games[chat_id]["started_by"]
         }
@@ -182,6 +183,8 @@ class TriviaBot:
         category_name = self.categories[category]
         
         prompt = f"""Generate {num_questions} university challenge questions in the {category_name} category. 
+
+        Each question should have two hints that guide to the answer but are not too obvious.
         
         The acceptable_answers should include the official answer plus alternative ways to express the same answer (different spellings, abbreviations, etc.). Make sure all answers are lowercase for easier matching.
         
@@ -214,6 +217,13 @@ class TriviaBot:
                                                 "type": "string",
                                                 "description": "The question"
                                             },
+                                            "hints": {
+                                                "type": "array",
+                                                "description": "Hints for the question",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
                                             "official_answer": {
                                                 "type": "string",
                                                 "description": "The official correct answer"
@@ -229,6 +239,7 @@ class TriviaBot:
                                         "additionalProperties": False,
                                         "required": [ 
                                             "question", 
+                                            "hints",
                                             "official_answer",
                                             "acceptable_answers" 
                                         ]
@@ -269,16 +280,19 @@ class TriviaBot:
             fallback_questions = [
                 {
                     "question": "What is the capital of France?",
+                    "hints": ["Starts with P", "Eiffel tower"],
                     "official_answer": "Paris",
                     "acceptable_answers": ["paris"]
                 },
                 {
                     "question": "What is 2 + 2?",
+                    "hints": ["Starts with F", "It's not five"],
                     "official_answer": "4",
                     "acceptable_answers": ["4", "four"]
                 },
                 {
                     "question": "What color do you get when you mix red and blue?",
+                    "hints": ["The royal color", "Blurple"],
                     "official_answer": "Purple",
                     "acceptable_answers": ["purple", "violet"]
                 }
@@ -310,6 +324,7 @@ class TriviaBot:
         game["current_question"] += 1
         game["question_start_time"] = time.time()
         game["answered"] = False
+        game["hint_count"] = 0
         
         # Send question
         question_text = (
@@ -326,14 +341,59 @@ class TriviaBot:
         
         # Store message ID for potential deletion
         game["current_message_id"] = message.message_id
-        
+
+        # Set timer for 10 seconds
+        context.job_queue.run_once(
+            self.give_hint,
+            10,
+            data={"chat_id": chat_id},
+            name=f"{chat_id}_{game['current_question']}"
+        )
+
+        # Set timer for 20 seconds
+        context.job_queue.run_once(
+            self.give_hint,
+            20,
+            data={"chat_id": chat_id},
+            name=f"{chat_id}_{game['current_question']}"
+        )
+
         # Set timer for 30 seconds
         context.job_queue.run_once(
             self.question_timeout,
             30,
             data={"chat_id": chat_id},
-            name=f"timeout_{chat_id}_{game['current_question']}"
+            name=f"{chat_id}_{game['current_question']}"
         )
+
+    async def give_hint(self, context: ContextTypes.DEFAULT_TYPE):
+        """Handle hint for question"""
+        chat_id = context.job.data["chat_id"]
+        
+        if chat_id not in self.active_games:
+            return
+        
+        game = self.active_games[chat_id]
+        
+        if game["answered"]:
+            return  # Question was already answered
+
+        # Show hint
+        current_q = game["questions"][game["current_question"] - 1]  # Adjust index since current_question is 1-based now
+        question_text = (
+            f"❓ *Question {game['current_question']}/{game['duration']}*\n\n"
+            f"{current_q['question']}\n\n"
+        )
+        for i in range(game["hint_count"] + 1):
+            question_text += f"Hint {i+1}: {current_q['hints'][i]}\n\n"
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=question_text,
+            parse_mode='Markdown'
+        )
+
+        game["hint_count"] += 1
 
     async def question_timeout(self, context: ContextTypes.DEFAULT_TYPE):
         """Handle question timeout"""
@@ -403,7 +463,7 @@ class TriviaBot:
             game["answered"] = True
             
             # Cancel timeout job
-            current_jobs = context.job_queue.get_jobs_by_name(f"timeout_{chat_id}_{game['current_question']}")
+            current_jobs = context.job_queue.get_jobs_by_name(f"{chat_id}_{game['current_question']}")
             for job in current_jobs:
                 job.schedule_removal()
             
