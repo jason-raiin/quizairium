@@ -65,10 +65,10 @@ class TriviaBot:
         
         # Show duration selection
         keyboard = [
-            [InlineKeyboardButton("5 Questions", callback_data="duration_5")],
+            [InlineKeyboardButton("3 Questions", callback_data="duration_3")],
             [InlineKeyboardButton("10 Questions", callback_data="duration_10")],
-            [InlineKeyboardButton("15 Questions", callback_data="duration_15")],
-            [InlineKeyboardButton("20 Questions", callback_data="duration_20")]
+            [InlineKeyboardButton("20 Questions", callback_data="duration_20")],
+            [InlineKeyboardButton("40 Questions", callback_data="duration_40")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
