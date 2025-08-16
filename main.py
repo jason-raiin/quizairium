@@ -46,7 +46,8 @@ class TriviaBot:
             "sports": "Sports",
             "entertainment": "Movies & TV",
             "music": "Music",
-            "literature": "Literature"
+            "literature": "Literature",
+            "programming": "Programming"
         }
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
