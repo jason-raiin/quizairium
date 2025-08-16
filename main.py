@@ -146,7 +146,6 @@ class TriviaBot:
             "questions": questions,  # Store all pre-generated questions
             "scores": {},
             "status": "active",
-            "hint_count": 0,
             "created_at": datetime.now(),
             "started_by": self.active_games[chat_id]["started_by"]
         }
@@ -163,7 +162,9 @@ class TriviaBot:
             "current_question": 0,
             "questions": questions,  # Store all pre-generated questions
             "scores": {},
-            "status": "active"
+            "status": "active",
+            "hint_count": 0,
+            "skip_vote": 0,
         })
         
         await query.edit_message_text(
@@ -328,6 +329,7 @@ class TriviaBot:
         game["question_start_time"] = time.time()
         game["answered"] = False
         game["hint_count"] = 0
+        game["skip_vote"] = 0
         
         # Send question
         question_text = (
@@ -482,6 +484,41 @@ class TriviaBot:
             await asyncio.sleep(3)
             await self.next_question(chat_id, context)
 
+    async def skip_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /skip command to vote to skip current question"""
+        chat_id = update.effective_chat.id
+        
+        # Check if there's an active game
+        if chat_id not in self.active_games:
+            await update.message.reply_text("There's no active game to end!")
+            return
+        
+        game = self.active_games[chat_id]
+        
+        if game["skip_vote"] == 0:
+            # Update skip vote
+            game["skip_vote"] = 1
+            await update.message.reply_text("✅ Voted to skip question!")
+        else:
+            # Cancel any pending timeout jobs
+            jobs_to_cancel = context.job_queue.get_jobs_by_name(f"{chat_id}")
+            for job in jobs_to_cancel:
+                job.schedule_removal()
+        
+            # Move to next question after a short delay
+            await update.message.reply_text("⏩ Skipping question...")
+
+            # Show correct answer
+            current_q = game["questions"][game["current_question"] - 1]  # Adjust index since current_question is 1-based now
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"⏩ Skipped! The correct answer was: *{current_q['official_answer']}*",
+                parse_mode='Markdown'
+            )
+
+            await asyncio.sleep(1.5)
+            await self.next_question(chat_id, context)
+
     async def end_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /end command to stop game immediately"""
         chat_id = update.effective_chat.id
@@ -627,6 +664,7 @@ class TriviaBot:
         
         # Add handlers
         application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("skip", self.skip_command))
         application.add_handler(CommandHandler("end", self.end_command))
         application.add_handler(CommandHandler("stats", self.stats_command))
         application.add_handler(CommandHandler("leaderboard", self.leaderboard_command))
