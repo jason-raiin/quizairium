@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 import time
+import random
 from datetime import datetime
 from tracemalloc import start
 from typing import Dict, List
@@ -130,7 +131,10 @@ class TriviaBot:
         
         # Generate all questions at once
         try:
-            questions = await self.generate_questions(category, self.active_games[chat_id]["duration"])
+            sampled_questions = await self.sample_questions(category, self.active_games[chat_id]["duration"] * 0.9)
+            generated_questions = await self.generate_questions(category, self.active_games[chat_id]["duration"] - len(sampled_questions))
+            questions = sampled_questions + generated_questions
+            random.shuffle(questions)
         except Exception as e:
             logger.error(f"Failed to generate questions: {e}")
             await query.edit_message_text("❌ Failed to generate questions. Please try again with /start")
@@ -179,6 +183,16 @@ class TriviaBot:
         # Start the first question
         await self.next_question(chat_id, context)
 
+    async def sample_questions(self, category: str, num_questions: int) -> List[Dict]:
+        """Pull questions from question bank"""
+        category_name = self.categories[category]
+
+        # Get questions from database
+        questions = list(self.questions_collection.aggregate([{ "$match": { "category": category } }, { "$sample": { "size": num_questions } }, { "$project": { "_id": 1 } }]))
+        question_ids = [q["_id"] for q in questions]
+
+        return question_ids
+        
     async def generate_questions(self, category: str, num_questions: int) -> List[Dict]:
         """Generate multiple trivia questions using OpenAI"""
         category_name = self.categories[category]
