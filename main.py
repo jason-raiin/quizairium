@@ -350,7 +350,7 @@ class TriviaBot:
             self.give_hint,
             10,
             data={"chat_id": chat_id},
-            name=f"{chat_id}_{game['current_question']}"
+            name=f"{chat_id}"
         )
 
         # Set timer for 20 seconds
@@ -358,7 +358,7 @@ class TriviaBot:
             self.give_hint,
             20,
             data={"chat_id": chat_id},
-            name=f"{chat_id}_{game['current_question']}"
+            name=f"{chat_id}"
         )
 
         # Set timer for 30 seconds
@@ -366,7 +366,7 @@ class TriviaBot:
             self.question_timeout,
             30,
             data={"chat_id": chat_id},
-            name=f"{chat_id}_{game['current_question']}"
+            name=f"{chat_id}"
         )
 
     async def give_hint(self, context: ContextTypes.DEFAULT_TYPE):
@@ -451,7 +451,7 @@ class TriviaBot:
 
             # Check that answer was sent before question ended
             time_elapsed = answer_time - game["question_start_time"]
-            if time_elapsed < 0.5: return # Buffer to prevent race
+            if time_elapsed < 1: return # Buffer to prevent race
 
             # Calculate score
             time_remaining = max(0, 30 - time_elapsed)
@@ -466,7 +466,7 @@ class TriviaBot:
             game["answered"] = True
             
             # Cancel timeout job
-            current_jobs = context.job_queue.get_jobs_by_name(f"{chat_id}_{game['current_question']}")
+            current_jobs = context.job_queue.get_jobs_by_name(f"{chat_id}")
             for job in current_jobs:
                 job.schedule_removal()
             
@@ -504,7 +504,7 @@ class TriviaBot:
             return
         
         # Cancel any pending timeout jobs
-        jobs_to_cancel = context.job_queue.get_jobs_by_name(f"timeout_{chat_id}_{game['current_question']}")
+        jobs_to_cancel = context.job_queue.get_jobs_by_name(f"{chat_id}")
         for job in jobs_to_cancel:
             job.schedule_removal()
         
