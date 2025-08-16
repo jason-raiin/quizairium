@@ -33,6 +33,7 @@ class TriviaBot:
         self.db = self.mongo_client.quizairium
         self.games_collection = self.db.games
         self.scores_collection = self.db.scores
+        self.questions_collection = self.db.questions
         
         # Active games storage
         self.active_games: Dict[int, Dict] = {}
@@ -141,8 +142,7 @@ class TriviaBot:
             "chat_id": chat_id,
             "duration": self.active_games[chat_id]["duration"],
             "category": category,
-            "category_name": self.categories[category],
-            "current_question": 0,
+            "current_question": { "number": 0 },
             "questions": questions,  # Store all pre-generated questions
             "scores": {},
             "status": "active",
@@ -158,8 +158,7 @@ class TriviaBot:
         self.active_games[chat_id].update({
             "game_id": game_id,
             "category": category,
-            "category_name": self.categories[category],
-            "current_question": 0,
+            "current_question": { "number": 0 },
             "questions": questions,  # Store all pre-generated questions
             "scores": {},
             "status": "active",
@@ -256,7 +255,6 @@ class TriviaBot:
                     }
                 }
             )
-
             
             content = response.choices[0].message.content.strip()
             questions_data = json.loads(content)["questions"]
@@ -264,6 +262,9 @@ class TriviaBot:
             # Ensure acceptable_answers are lowercase for all questions
             for question in questions_data:
                 question["acceptable_answers"] = [ans.lower().removeprefix("the").strip() for ans in question["acceptable_answers"]]
+
+            # Insert generated questions into database
+            question_ids = self.questions_collection.insert_many([ { **q, "category": category, "difficulty": 0 } for q in questions_data ]).inserted_ids
             
             # Validate we got the right number of questions
             if len(questions_data) != num_questions:
@@ -276,7 +277,7 @@ class TriviaBot:
                         "acceptable_answers": [str(2 + len(questions_data))]
                     })
             
-            return questions_data[:num_questions]  # Ensure we don't exceed requested number
+            return question_ids[:num_questions]  # Ensure we don't exceed requested number
             
         except Exception as e:
             logger.error(f"Error generating questions: {e}")
@@ -315,17 +316,18 @@ class TriviaBot:
             return
         
         game = self.active_games[chat_id]
+        current_question_number = game["current_question"]["number"]
         
         # Check if game is finished
-        if game["current_question"] >= game["duration"]:
+        if current_question_number >= game["duration"]:
             await self.end_game(chat_id, context)
             return
         
         # Get the pre-generated question
-        question_data = game["questions"][game["current_question"]]
+        question = self.questions_collection.find_one({ "_id": game["questions"][current_question_number] })
         
         # Update game state
-        game["current_question"] += 1
+        game["current_question"] = { "number": current_question_number + 1, **question }
         game["question_start_time"] = time.time()
         game["answered"] = False
         game["hint_count"] = 0
@@ -333,8 +335,8 @@ class TriviaBot:
         
         # Send question
         question_text = (
-            f"❓ *Question {game['current_question']}/{game['duration']}*\n\n"
-            f"{question_data['question']}\n\n"
+            f"❓ *Question {game['current_question']['number']}/{game['duration']}*\n\n"
+            f"{question['question']}\n\n"
             f"⏱️ You have 30 seconds to answer!"
         )
         
@@ -384,9 +386,9 @@ class TriviaBot:
             return  # Question was already answered
 
         # Show hint
-        current_q = game["questions"][game["current_question"] - 1]  # Adjust index since current_question is 1-based now
+        current_q = game["current_question"]
         question_text = (
-            f"❓ *Question {game['current_question']}/{game['duration']}*\n\n"
+            f"❓ *Question {current_q['number']}/{game['duration']}*\n\n"
             f"{current_q['question']}\n\n"
         )
         for i in range(game["hint_count"] + 1):
@@ -413,7 +415,7 @@ class TriviaBot:
             return  # Question was already answered
         
         # Show correct answer
-        current_q = game["questions"][game["current_question"] - 1]  # Adjust index since current_question is 1-based now
+        current_q = game["current_question"]
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"⏰ Time's up! The correct answer was: *{current_q['official_answer']}*",
@@ -443,7 +445,7 @@ class TriviaBot:
             return
         
         # Get current question
-        current_q = game["questions"][game["current_question"] - 1]  # Adjust index since current_question is 1-based now
+        current_q = game["current_question"]
         
         # Check if answer is correct
         if user_answer in current_q["acceptable_answers"]:
@@ -509,7 +511,7 @@ class TriviaBot:
             await update.message.reply_text("⏩ Skipping question...")
 
             # Show correct answer
-            current_q = game["questions"][game["current_question"] - 1]  # Adjust index since current_question is 1-based now
+            current_q = game["current_question"]
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=f"⏩ Skipped! The correct answer was: *{current_q['official_answer']}*",
@@ -565,7 +567,7 @@ class TriviaBot:
                     "scores": { str(key): value for key, value in game["scores"].items() },
                     "status": "completed" if not early_end else "ended_early",
                     "completed_at": datetime.now(),
-                    "questions_completed": game["current_question"] - (1 if game.get("answered", False) else 0)
+                    "questions_completed": game["current_question"]["number"] - (1 if game.get("answered", False) else 0)
                 }
             }
         )
@@ -602,7 +604,7 @@ class TriviaBot:
             else:
                 leaderboard = "🤷‍♂️ No one scored any points this round! Better luck next time!"
         
-        questions_text = f"Questions completed: {game['current_question'] - (1 if not game.get('answered', True) else 0)}/{game['duration']}\n" if early_end else ""
+        questions_text = f"Questions completed: {game['current_question']['number'] - (1 if not game.get('answered', True) else 0)}/{game['duration']}\n" if early_end else ""
         leaderboard += f"\n{questions_text}🎮 Thanks for playing!\nUse /start to play again."
         
         await context.bot.send_message(
