@@ -455,7 +455,8 @@ class TriviaBot:
         current_q = game["current_question"]
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"⏰ Time's up! The correct answer was: *{current_q['official_answer']}*",
+            text=f"⏰ Time's up! The correct answer was: *{current_q['official_answer']}*\n\n"
+            f"Rate this question: ✅ /good OR ❌ /bad",
             parse_mode='Markdown'
         )
 
@@ -516,13 +517,46 @@ class TriviaBot:
             await update.message.reply_text(
                 f"🎉 Correct! *{r"{}".format(username)}* got it right!\n"
                 f"Answer: {current_q['official_answer']}\n"
-                f"Points earned: {points} pts (+{time_remaining:.1f}s remaining)",
+                f"Points earned: {points} pts (+{time_remaining:.1f}s remaining)\n\n"
+                f"Rate this question: ✅ /good OR ❌ /bad",
                 parse_mode='Markdown'
             )
             
             # Move to next question after a short delay
             await asyncio.sleep(3)
             await self.next_question(chat_id, context)
+
+    async def rate_good_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /rate_good command to rate current question as good"""
+        chat_id = update.effective_chat.id
+
+        # Check if there's an active game
+        if chat_id not in self.active_games:
+            await update.message.reply_text("There's no active game to end!")
+            return
+
+        game = self.active_games[chat_id]
+
+        if not game["previous_question"]:
+            return  # No previous question
+        
+        game["previous_question"]["rating"] += 1
+
+    async def rate_bad_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /rate_good command to rate current question as good"""
+        chat_id = update.effective_chat.id
+
+        # Check if there's an active game
+        if chat_id not in self.active_games:
+            await update.message.reply_text("There's no active game to end!")
+            return
+
+        game = self.active_games[chat_id]
+
+        if not game["previous_question"]:
+            return  # No previous question
+        
+        game["previous_question"]["rating"] -= 1
 
     async def skip_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /skip command to vote to skip current question"""
@@ -554,7 +588,8 @@ class TriviaBot:
             current_q = game["current_question"]
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"⏩ Skipped! The correct answer was: *{current_q['official_answer']}*",
+                text=f"⏩ Skipped! The correct answer was: *{current_q['official_answer']}* \n\n"
+                f"Rate this question: ✅ /good OR ❌ /bad",
                 parse_mode='Markdown'
             )
 
@@ -707,6 +742,8 @@ class TriviaBot:
         # Add handlers
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("skip", self.skip_command))
+        application.add_handler(CommandHandler("good", self.rate_good_command))
+        application.add_handler(CommandHandler("bad", self.rate_bad_command))
         application.add_handler(CommandHandler("end", self.end_command))
         application.add_handler(CommandHandler("stats", self.stats_command))
         application.add_handler(CommandHandler("leaderboard", self.leaderboard_command))
