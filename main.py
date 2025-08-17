@@ -146,7 +146,6 @@ class TriviaBot:
             "chat_id": chat_id,
             "duration": self.active_games[chat_id]["duration"],
             "category": category,
-            "current_question": { "number": 0 },
             "questions": questions,  # Store all pre-generated questions
             "scores": {},
             "status": "active",
@@ -278,7 +277,7 @@ class TriviaBot:
                 question["acceptable_answers"] = [ans.lower().removeprefix("the").strip() for ans in question["acceptable_answers"]]
 
             # Insert generated questions into database
-            question_ids = self.questions_collection.insert_many([ { **q, "category": category, "difficulty": 0 } for q in questions_data ]).inserted_ids
+            question_ids = self.questions_collection.insert_many([ { **q, "category": category, "rating": 0, "times_played": 0, "times_answered": 0 } for q in questions_data ]).inserted_ids
             
             # Validate we got the right number of questions
             if len(questions_data) != num_questions:
@@ -331,19 +330,43 @@ class TriviaBot:
         
         game = self.active_games[chat_id]
         current_question_number = game["current_question"]["number"]
-        
+                
+        # Update rating of previous question in DB
+        if game["current_question"]["number"] > 1:
+            self.questions_collection.update_one(
+                { "_id": game["previous_question"]["_id"] },
+                { "$inc": { 
+                    "rating": game["previous_question"]["rating"],
+                    "times_answered": 1 if game["previous_question"]["answered"] else 0,
+                    "times_skipped": 1 if game["previous_question"]["skipped"] else 0,
+                    "times_played": 1,
+                } }
+            )
+
         # Check if game is finished
         if current_question_number >= game["duration"]:
+            # Update rating of current question in DB
+            self.questions_collection.update_one(
+                { "_id": game["current_question"]["_id"] },
+                { "$inc": { 
+                    "rating": game["current_question"]["rating"],
+                    "times_answered": 1 if game["current_question"]["answered"] else 0,
+                    "times_skipped": 1 if game["current_question"]["skipped"] else 0,
+                    "times_played": 1,
+                } }
+            )
+
             await self.end_game(chat_id, context)
             return
         
         # Get the pre-generated question
         question = self.questions_collection.find_one({ "_id": game["questions"][current_question_number] })
-        
+
         # Update game state
-        game["current_question"] = { "number": current_question_number + 1, **question }
+        game["previous_question"] = game["current_question"]
+        game["current_question"] = { "number": current_question_number + 1, **question, "answered": False, "skipped": False, "rating": 0 }
         game["question_start_time"] = time.time()
-        game["answered"] = False
+        game["question_active"] = True
         game["hint_count"] = 0
         game["skip_vote"] = 0
         
@@ -396,8 +419,8 @@ class TriviaBot:
         
         game = self.active_games[chat_id]
         
-        if game["answered"]:
-            return  # Question was already answered
+        if not game["question_active"]:
+            return  # Question is not active
 
         # Show hint
         current_q = game["current_question"]
@@ -425,7 +448,7 @@ class TriviaBot:
         
         game = self.active_games[chat_id]
         
-        if game["answered"]:
+        if not game["question_active"]:
             return  # Question was already answered
         
         # Show correct answer
@@ -436,7 +459,7 @@ class TriviaBot:
             parse_mode='Markdown'
         )
 
-        game["answered"] = True
+        game["question_active"] = False
         
         # Move to next question after a short delay
         await asyncio.sleep(2)
@@ -455,7 +478,7 @@ class TriviaBot:
         
         game = self.active_games[chat_id]
         
-        if game["answered"] or not game.get("question_start_time"):
+        if not game["question_active"] or not game.get("question_start_time"):
             return
         
         # Get current question
@@ -481,7 +504,8 @@ class TriviaBot:
             game["scores"][user_id]["points"] += points
             
             # Mark as answered
-            game["answered"] = True
+            game["current_question"]["answered"] = True
+            game["question_active"] = False
             
             # Cancel timeout job
             current_jobs = context.job_queue.get_jobs_by_name(f"{chat_id}")
@@ -516,6 +540,8 @@ class TriviaBot:
             game["skip_vote"] = 1
             await update.message.reply_text("✅ Voted to skip question!")
         else:
+            game["current_question"]["skipped"] = True
+
             # Cancel any pending timeout jobs
             jobs_to_cancel = context.job_queue.get_jobs_by_name(f"{chat_id}")
             for job in jobs_to_cancel:
