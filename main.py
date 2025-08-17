@@ -131,9 +131,13 @@ class TriviaBot:
         
         # Generate all questions at once
         try:
-            sampled_questions = await self.sample_questions(category, self.active_games[chat_id]["duration"] * 0.9)
-            generated_questions = await self.generate_questions(category, self.active_games[chat_id]["duration"] - len(sampled_questions))
-            questions = sampled_questions + generated_questions
+            sampled_question_ids, sampled_questions = await self.sample_questions(category, self.active_games[chat_id]["duration"] * 0.9)
+            generated_question_ids = await self.generate_questions(
+                category, 
+                self.active_games[chat_id]["duration"] - len(sampled_questions), 
+                sampled_questions
+            )
+            questions = sampled_question_ids + generated_question_ids
             random.shuffle(questions)
         except Exception as e:
             logger.error(f"Failed to generate questions: {e}")
@@ -182,17 +186,24 @@ class TriviaBot:
         # Start the first question
         await self.next_question(chat_id, context)
 
-    async def sample_questions(self, category: str, num_questions: int) -> List[Dict]:
+    async def sample_questions(self, category: str, num_questions: int):
         """Pull questions from question bank"""
         category_name = self.categories[category]
 
         # Get questions from database
-        questions = list(self.questions_collection.aggregate([{ "$match": { "category": category } }, { "$sample": { "size": num_questions } }, { "$project": { "_id": 1 } }]))
-        question_ids = [q["_id"] for q in questions]
+        questions = list(self.questions_collection.aggregate([
+            { "$match": { "category": category } }, 
+            { "$sample": { "size": num_questions } }, 
+            { "$project": { "_id": 1, "question": 1 } }
+        ]))
 
-        return question_ids
+        question_ids = [q["_id"] for q in questions]
+        questions = [q["question"] for q in questions]
+
+
+        return question_ids, questions
         
-    async def generate_questions(self, category: str, num_questions: int) -> List[Dict]:
+    async def generate_questions(self, category: str, num_questions: int, sampled_questions: List[Dict]):
         """Generate multiple trivia questions using OpenAI"""
         category_name = self.categories[category]
         
@@ -204,7 +215,14 @@ class TriviaBot:
         
         The acceptable_answers should include the official answer plus alternative ways to express the same answer (different spellings, abbreviations, etc.). Make sure all answers are lowercase for easier matching.
         
-        Make the questions as difficult as you would expect in the University Challenge. Ensure all {num_questions} questions are unique and varied within the category."""
+        I am also providing with the following list of questions that will be used in the game:
+
+        {sampled_questions}
+
+        You can use these questions as references but you should avoid questions that are too similar to the ones in the list.
+
+        Make the questions as difficult as you would expect in the University Challenge. Ensure all {num_questions} questions are unique and varied within the category.
+        """
         
         try:
             response = await self.openai_client.chat.completions.create(
