@@ -295,7 +295,7 @@ class TriviaBot:
                 question["acceptable_answers"] = [ans.lower().removeprefix("the").strip() for ans in question["acceptable_answers"]]
 
             # Insert generated questions into database
-            question_ids = self.questions_collection.insert_many([ { **q, "category": category, "rating": 0, "times_played": 0, "times_answered": 0 } for q in questions_data ]).inserted_ids
+            question_ids = self.questions_collection.insert_many([ { **q, "category": category } for q in questions_data ]).inserted_ids
             
             # Validate we got the right number of questions
             if len(questions_data) != num_questions:
@@ -358,6 +358,7 @@ class TriviaBot:
                     "times_answered": 1 if game["previous_question"]["answered"] else 0,
                     "times_skipped": 1 if game["previous_question"]["skipped"] else 0,
                     "times_played": 1,
+                    "hallucination_score": game["previous_question"]["hallucination_score"],
                 } }
             )
 
@@ -371,6 +372,7 @@ class TriviaBot:
                     "times_answered": 1 if game["current_question"]["answered"] else 0,
                     "times_skipped": 1 if game["current_question"]["skipped"] else 0,
                     "times_played": 1,
+                    "hallucination_score": game["previous_question"]["hallucination_score"],
                 } }
             )
 
@@ -382,7 +384,14 @@ class TriviaBot:
 
         # Update game state
         game["previous_question"] = game["current_question"]
-        game["current_question"] = { "number": current_question_number + 1, **question, "answered": False, "skipped": False, "rating": 0 }
+        game["current_question"] = { 
+            **question, 
+            "number": current_question_number + 1, 
+            "answered": False, 
+            "skipped": False, 
+            "rating": 0,
+            "hallucination_score": 0,
+        }
         game["question_start_time"] = time.time()
         game["question_active"] = True
         game["hint_count"] = 0
@@ -474,7 +483,8 @@ class TriviaBot:
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"⏰ Time's up! The correct answer was: *{current_q['official_answer']}*\n\n"
-            f"Rate this question: ✅ /good OR ❌ /bad",
+            f"Rate this question: ✅ /good OR ❌ /bad\n"
+            f"Is this a hallucation? 😵‍💫 /hallucination",
             parse_mode='Markdown'
         )
 
@@ -536,7 +546,8 @@ class TriviaBot:
                 f"🎉 Correct! *{r"{}".format(username)}* got it right!\n"
                 f"Answer: {current_q['official_answer']}\n"
                 f"Points earned: {points} pts (+{time_remaining:.1f}s remaining)\n\n"
-                f"Rate this question: ✅ /good OR ❌ /bad",
+                f"Rate this question: ✅ /good OR ❌ /bad\n"
+                f"Is this a hallucation? 😵‍💫 /hallucination",
                 parse_mode='Markdown'
             )
             
@@ -576,6 +587,22 @@ class TriviaBot:
         
         game["previous_question"]["rating"] -= 1
 
+    async def hallucination_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /rate_good command to rate current question as good"""
+        chat_id = update.effective_chat.id
+
+        # Check if there's an active game
+        if chat_id not in self.active_games:
+            await update.message.reply_text("There's no active game to end!")
+            return
+
+        game = self.active_games[chat_id]
+
+        if not game["previous_question"]:
+            return  # No previous question
+        
+        game["previous_question"]["hallucination_score"] += 1
+
     async def skip_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /skip command to vote to skip current question"""
         chat_id = update.effective_chat.id
@@ -607,7 +634,8 @@ class TriviaBot:
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=f"⏩ Skipped! The correct answer was: *{current_q['official_answer']}* \n\n"
-                f"Rate this question: ✅ /good OR ❌ /bad",
+                f"Rate this question: ✅ /good OR ❌ /bad\n"
+                f"Is this a hallucation? 😵‍💫 /hallucination",
                 parse_mode='Markdown'
             )
 
@@ -763,6 +791,7 @@ class TriviaBot:
         application.add_handler(CommandHandler("good", self.rate_good_command))
         application.add_handler(CommandHandler("bad", self.rate_bad_command))
         application.add_handler(CommandHandler("end", self.end_command))
+        application.add_handler(CommandHandler("hallucination", self.hallucination_command))
         application.add_handler(CommandHandler("stats", self.stats_command))
         application.add_handler(CommandHandler("leaderboard", self.leaderboard_command))
         application.add_handler(CallbackQueryHandler(self.duration_callback, pattern="^duration_"))
