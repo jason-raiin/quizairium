@@ -482,7 +482,7 @@ class TriviaBot:
         current_q = game["current_question"]
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"⏰ Time's up! The correct answer was: *{current_q['official_answer']}*\n\n"
+            text=rf"⏰ Time's up! The correct answer was: *{r"{}".format(current_q['official_answer'])}*\n\n"
             f"Rate this question: ✅ /good OR ❌ /bad\n"
             f"Is this a hallucation? 😵‍💫 /hallucination",
             parse_mode='Markdown'
@@ -544,7 +544,7 @@ class TriviaBot:
             # Send success message
             await update.message.reply_text(
                 f"🎉 Correct! *{r"{}".format(username)}* got it right!\n"
-                f"Answer: {current_q['official_answer']}\n"
+                rf"Answer: *{r"{}".format(current_q['official_answer'])}*\n"
                 f"Points earned: {points} pts (+{time_remaining:.1f}s remaining)\n\n"
                 f"Rate this question: ✅ /good OR ❌ /bad\n"
                 f"Is this a hallucation? 😵‍💫 /hallucination",
@@ -633,7 +633,7 @@ class TriviaBot:
             current_q = game["current_question"]
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"⏩ Skipped! The correct answer was: *{current_q['official_answer']}* \n\n"
+                text=rf"⏩ Skipped! The correct answer was: *{r"{}".format(current_q['official_answer'])}* \n\n"
                 f"Rate this question: ✅ /good OR ❌ /bad\n"
                 f"Is this a hallucation? 😵‍💫 /hallucination",
                 parse_mode='Markdown'
