@@ -191,15 +191,15 @@ class TriviaBot:
         category_name = self.categories[category]
 
         # Get questions from database
-        questions = list(self.questions_collection.aggregate([
+        pipeline = [
             { "$match": { "category": category } }, 
             { "$sample": { "size": num_questions } }, 
             { "$project": { "_id": 1, "question": 1 } }
-        ]))
+        ]
+        questions = list(self.questions_collection.aggregate(pipeline[1:] if category == "general" else pipeline))
 
         question_ids = [q["_id"] for q in questions]
         questions = [q["question"] for q in questions]
-
 
         return question_ids, questions
         
