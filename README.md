@@ -10,7 +10,7 @@ To play, add [`@QuizAIriumBot`](https://t.me/QuizairiumBot) to your Telegram gro
 
 Clone the repository:
 ```bash
-git clone https://github.com/jasonhuang/quizairium
+git clone https://github.com/jason-raiin/quizairium
 ```
 
 Install the required dependencies:
